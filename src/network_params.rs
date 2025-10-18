@@ -208,4 +208,237 @@ mod tests {
         assert_eq!(params.network_name, constants.network_name);
         assert_eq!(params.is_testnet, constants.is_testnet);
     }
+    
+    #[test]
+    fn test_network_constants_for_version() {
+        let mainnet = NetworkConstants::for_version(ProtocolVersion::BitcoinV1).unwrap();
+        assert_eq!(mainnet.network_name, "mainnet");
+        assert!(!mainnet.is_testnet);
+        
+        let testnet = NetworkConstants::for_version(ProtocolVersion::Testnet3).unwrap();
+        assert_eq!(testnet.network_name, "testnet");
+        assert!(testnet.is_testnet);
+        
+        let regtest = NetworkConstants::for_version(ProtocolVersion::Regtest).unwrap();
+        assert_eq!(regtest.network_name, "regtest");
+        assert!(regtest.is_testnet);
+    }
+    
+    #[test]
+    fn test_genesis_hashes() {
+        let mainnet = NetworkConstants::mainnet().unwrap();
+        let testnet = NetworkConstants::testnet().unwrap();
+        let regtest = NetworkConstants::regtest().unwrap();
+        
+        // Verify genesis hashes are different for each network
+        assert_ne!(mainnet.genesis_hash, testnet.genesis_hash);
+        assert_ne!(testnet.genesis_hash, regtest.genesis_hash);
+        assert_ne!(mainnet.genesis_hash, regtest.genesis_hash);
+        
+        // Verify genesis hashes are not all zeros
+        assert_ne!(mainnet.genesis_hash, [0u8; 32]);
+        assert_ne!(testnet.genesis_hash, [0u8; 32]);
+        assert_ne!(regtest.genesis_hash, [0u8; 32]);
+    }
+    
+    #[test]
+    fn test_dns_seeds() {
+        let mainnet = NetworkConstants::mainnet().unwrap();
+        let testnet = NetworkConstants::testnet().unwrap();
+        let regtest = NetworkConstants::regtest().unwrap();
+        
+        // Mainnet should have DNS seeds
+        assert!(!mainnet.dns_seeds.is_empty());
+        assert!(mainnet.dns_seeds.iter().any(|seed| seed.contains("bitcoin")));
+        
+        // Testnet should have DNS seeds
+        assert!(!testnet.dns_seeds.is_empty());
+        assert!(testnet.dns_seeds.iter().any(|seed| seed.contains("testnet")));
+        
+        // Regtest should have no DNS seeds
+        assert!(regtest.dns_seeds.is_empty());
+    }
+    
+    #[test]
+    fn test_checkpoints() {
+        let mainnet = NetworkConstants::mainnet().unwrap();
+        let testnet = NetworkConstants::testnet().unwrap();
+        let regtest = NetworkConstants::regtest().unwrap();
+        
+        // Mainnet should have checkpoints
+        assert!(!mainnet.checkpoints.is_empty());
+        
+        // Testnet should have checkpoints
+        assert!(!testnet.checkpoints.is_empty());
+        
+        // Regtest should have no checkpoints
+        assert!(regtest.checkpoints.is_empty());
+        
+        // Check that checkpoints are ordered by height
+        for checkpoints in [&mainnet.checkpoints, &testnet.checkpoints] {
+            for i in 1..checkpoints.len() {
+                assert!(checkpoints[i].height > checkpoints[i-1].height);
+            }
+        }
+    }
+    
+    #[test]
+    fn test_max_targets() {
+        let mainnet = NetworkConstants::mainnet().unwrap();
+        let testnet = NetworkConstants::testnet().unwrap();
+        let regtest = NetworkConstants::regtest().unwrap();
+        
+        // Mainnet and testnet should have same max target
+        assert_eq!(mainnet.max_target, 0x1d00ffff);
+        assert_eq!(testnet.max_target, 0x1d00ffff);
+        
+        // Regtest should have easier difficulty
+        assert_eq!(regtest.max_target, 0x207fffff);
+        assert!(regtest.max_target > mainnet.max_target);
+    }
+    
+    #[test]
+    fn test_halving_intervals() {
+        let mainnet = NetworkConstants::mainnet().unwrap();
+        let testnet = NetworkConstants::testnet().unwrap();
+        let regtest = NetworkConstants::regtest().unwrap();
+        
+        // Mainnet and testnet should have same halving interval
+        assert_eq!(mainnet.halving_interval, 210000);
+        assert_eq!(testnet.halving_interval, 210000);
+        
+        // Regtest should have faster halving for testing
+        assert_eq!(regtest.halving_interval, 150);
+        assert!(regtest.halving_interval < mainnet.halving_interval);
+    }
+    
+    #[test]
+    fn test_network_constants_serialization() {
+        let mainnet = NetworkConstants::mainnet().unwrap();
+        let testnet = NetworkConstants::testnet().unwrap();
+        let regtest = NetworkConstants::regtest().unwrap();
+        
+        // Test serialization/deserialization
+        for constants in [mainnet, testnet, regtest] {
+            let json = serde_json::to_string(&constants).unwrap();
+            let deserialized: NetworkConstants = serde_json::from_str(&json).unwrap();
+            
+            assert_eq!(constants.magic_bytes, deserialized.magic_bytes);
+            assert_eq!(constants.default_port, deserialized.default_port);
+            assert_eq!(constants.genesis_hash, deserialized.genesis_hash);
+            assert_eq!(constants.max_target, deserialized.max_target);
+            assert_eq!(constants.halving_interval, deserialized.halving_interval);
+            assert_eq!(constants.network_name, deserialized.network_name);
+            assert_eq!(constants.is_testnet, deserialized.is_testnet);
+            assert_eq!(constants.dns_seeds, deserialized.dns_seeds);
+            assert_eq!(constants.checkpoints, deserialized.checkpoints);
+        }
+    }
+    
+    #[test]
+    fn test_checkpoint_serialization() {
+        let checkpoint = Checkpoint {
+            height: 1000,
+            hash: [0x01, 0x02, 0x03, 0x04, 0x01, 0x02, 0x03, 0x04, 0x01, 0x02, 0x03, 0x04, 0x01, 0x02, 0x03, 0x04, 0x01, 0x02, 0x03, 0x04, 0x01, 0x02, 0x03, 0x04, 0x01, 0x02, 0x03, 0x04, 0x01, 0x02, 0x03, 0x04],
+            timestamp: 1234567890,
+        };
+        
+        let json = serde_json::to_string(&checkpoint).unwrap();
+        let deserialized: Checkpoint = serde_json::from_str(&json).unwrap();
+        
+        assert_eq!(checkpoint.height, deserialized.height);
+        assert_eq!(checkpoint.hash, deserialized.hash);
+        assert_eq!(checkpoint.timestamp, deserialized.timestamp);
+    }
+    
+    #[test]
+    fn test_network_constants_equality() {
+        let mainnet1 = NetworkConstants::mainnet().unwrap();
+        let mainnet2 = NetworkConstants::mainnet().unwrap();
+        let testnet = NetworkConstants::testnet().unwrap();
+        
+        assert_eq!(mainnet1, mainnet2);
+        assert_ne!(mainnet1, testnet);
+    }
+    
+    #[test]
+    fn test_checkpoint_equality() {
+        let checkpoint1 = Checkpoint {
+            height: 1000,
+            hash: [0x01; 32],
+            timestamp: 1234567890,
+        };
+        
+        let checkpoint2 = Checkpoint {
+            height: 1000,
+            hash: [0x01; 32],
+            timestamp: 1234567890,
+        };
+        
+        let checkpoint3 = Checkpoint {
+            height: 1001,
+            hash: [0x01; 32],
+            timestamp: 1234567890,
+        };
+        
+        assert_eq!(checkpoint1, checkpoint2);
+        assert_ne!(checkpoint1, checkpoint3);
+    }
+    
+    #[test]
+    fn test_network_parameters_consistency() {
+        let mainnet_constants = NetworkConstants::mainnet().unwrap();
+        let mainnet_params = NetworkParameters::from_constants(&mainnet_constants).unwrap();
+        
+        assert_eq!(mainnet_params.magic_bytes, mainnet_constants.magic_bytes);
+        assert_eq!(mainnet_params.default_port, mainnet_constants.default_port);
+        assert_eq!(mainnet_params.max_target, mainnet_constants.max_target);
+        assert_eq!(mainnet_params.halving_interval, mainnet_constants.halving_interval);
+        assert_eq!(mainnet_params.network_name, mainnet_constants.network_name);
+        assert_eq!(mainnet_params.is_testnet, mainnet_constants.is_testnet);
+    }
+    
+    #[test]
+    fn test_all_networks_have_unique_magic_bytes() {
+        let mainnet = NetworkConstants::mainnet().unwrap();
+        let testnet = NetworkConstants::testnet().unwrap();
+        let regtest = NetworkConstants::regtest().unwrap();
+        
+        assert_ne!(mainnet.magic_bytes, testnet.magic_bytes);
+        assert_ne!(testnet.magic_bytes, regtest.magic_bytes);
+        assert_ne!(mainnet.magic_bytes, regtest.magic_bytes);
+    }
+    
+    #[test]
+    fn test_all_networks_have_unique_ports() {
+        let mainnet = NetworkConstants::mainnet().unwrap();
+        let testnet = NetworkConstants::testnet().unwrap();
+        let regtest = NetworkConstants::regtest().unwrap();
+        
+        assert_ne!(mainnet.default_port, testnet.default_port);
+        assert_ne!(testnet.default_port, regtest.default_port);
+        assert_ne!(mainnet.default_port, regtest.default_port);
+    }
+    
+    #[test]
+    fn test_network_names() {
+        let mainnet = NetworkConstants::mainnet().unwrap();
+        let testnet = NetworkConstants::testnet().unwrap();
+        let regtest = NetworkConstants::regtest().unwrap();
+        
+        assert_eq!(mainnet.network_name, "mainnet");
+        assert_eq!(testnet.network_name, "testnet");
+        assert_eq!(regtest.network_name, "regtest");
+    }
+    
+    #[test]
+    fn test_testnet_flags() {
+        let mainnet = NetworkConstants::mainnet().unwrap();
+        let testnet = NetworkConstants::testnet().unwrap();
+        let regtest = NetworkConstants::regtest().unwrap();
+        
+        assert!(!mainnet.is_testnet);
+        assert!(testnet.is_testnet);
+        assert!(regtest.is_testnet);
+    }
 }

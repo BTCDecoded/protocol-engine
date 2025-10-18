@@ -2,27 +2,85 @@
 /target/
 **/*.rs.bk
 *.pdb
+**/*.rmeta
 
-# Coverage reports
+# Coverage reports and profiling
+/coverage/
 /target/tarpaulin/
 *.tarpaulin
+*.profraw
+*.profdata
+/cobertura.xml
+/lcov.info
 
-# IDE files
+# IDE and editor files
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
+.*.sw?
+*.sublime-*
+.project
+.classpath
+.settings/
+.vs/
 
 # OS files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
+Desktop.ini
 
-# Environment files
+# Environment and secrets
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
 
-# Logs
+# Logs and databases
 *.log
-target/.rustc_info.json
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
 
+# Documentation build artifacts
+/target/doc/
+/book/
+
+# Benchmark results
+/target/criterion/
+/benches/*.txt
+
+# Flamegraph and profiling
+flamegraph.svg
+perf.data
+perf.data.old
+
+# Backup files
+*.bak
+*.gho
+*.ori
+*.orig
+*.tmp
+
+# Lock files from other tools
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Test artifacts
+*.test
+/test-results/
+
+# Misc
+.cache/
+*.pid

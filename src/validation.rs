@@ -8,9 +8,10 @@ use crate::{BitcoinProtocolEngine, ProtocolVersion, NetworkParameters, Result};
 use consensus_proof::{Block, Transaction, ValidationResult};
 use consensus_proof::types::{OutPoint, UTXO};
 use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
 
 /// Protocol-specific validation rules
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProtocolValidationRules {
     /// Maximum block size for this protocol
     pub max_block_size: u32,
@@ -85,7 +86,7 @@ impl ProtocolValidationRules {
 }
 
 /// Protocol-specific validation context
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProtocolValidationContext {
     /// Current block height
     pub block_height: u64,
@@ -244,6 +245,9 @@ impl BitcoinProtocolEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use consensus_proof::{Block, Transaction, BlockHeader};
+    use consensus_proof::types::{TransactionInput, TransactionOutput, OutPoint};
+    use std::collections::HashMap;
     
     #[test]
     fn test_validation_rules() {
@@ -259,11 +263,236 @@ mod tests {
     }
     
     #[test]
+    fn test_validation_rules_all_protocols() {
+        let mainnet_rules = ProtocolValidationRules::for_protocol(ProtocolVersion::BitcoinV1);
+        let testnet_rules = ProtocolValidationRules::for_protocol(ProtocolVersion::Testnet3);
+        let regtest_rules = ProtocolValidationRules::for_protocol(ProtocolVersion::Regtest);
+        
+        // Mainnet and testnet should have same rules
+        assert_eq!(mainnet_rules.max_block_size, testnet_rules.max_block_size);
+        assert_eq!(mainnet_rules.max_tx_size, testnet_rules.max_tx_size);
+        assert_eq!(mainnet_rules.max_script_size, testnet_rules.max_script_size);
+        assert_eq!(mainnet_rules.segwit_enabled, testnet_rules.segwit_enabled);
+        assert_eq!(mainnet_rules.taproot_enabled, testnet_rules.taproot_enabled);
+        assert_eq!(mainnet_rules.rbf_enabled, testnet_rules.rbf_enabled);
+        assert_eq!(mainnet_rules.min_fee_rate, testnet_rules.min_fee_rate);
+        assert_eq!(mainnet_rules.max_fee_rate, testnet_rules.max_fee_rate);
+        
+        // Regtest should have relaxed fee rules
+        assert_eq!(regtest_rules.min_fee_rate, 0);
+        assert_eq!(regtest_rules.max_fee_rate, mainnet_rules.max_fee_rate);
+    }
+    
+    #[test]
+    fn test_validation_rules_serialization() {
+        let mainnet_rules = ProtocolValidationRules::mainnet();
+        let json = serde_json::to_string(&mainnet_rules).unwrap();
+        let deserialized: ProtocolValidationRules = serde_json::from_str(&json).unwrap();
+        
+        assert_eq!(mainnet_rules.max_block_size, deserialized.max_block_size);
+        assert_eq!(mainnet_rules.max_tx_size, deserialized.max_tx_size);
+        assert_eq!(mainnet_rules.max_script_size, deserialized.max_script_size);
+        assert_eq!(mainnet_rules.segwit_enabled, deserialized.segwit_enabled);
+        assert_eq!(mainnet_rules.taproot_enabled, deserialized.taproot_enabled);
+        assert_eq!(mainnet_rules.rbf_enabled, deserialized.rbf_enabled);
+        assert_eq!(mainnet_rules.min_fee_rate, deserialized.min_fee_rate);
+        assert_eq!(mainnet_rules.max_fee_rate, deserialized.max_fee_rate);
+    }
+    
+    #[test]
+    fn test_validation_rules_equality() {
+        let mainnet1 = ProtocolValidationRules::mainnet();
+        let mainnet2 = ProtocolValidationRules::mainnet();
+        let testnet = ProtocolValidationRules::testnet();
+        
+        assert_eq!(mainnet1, mainnet2);
+        assert_eq!(mainnet1, testnet); // Mainnet and testnet should be identical
+    }
+    
+    #[test]
     fn test_validation_context() {
         let context = ProtocolValidationContext::new(ProtocolVersion::BitcoinV1, 1000).unwrap();
         assert_eq!(context.block_height, 1000);
         assert!(context.is_feature_enabled("segwit"));
         assert!(!context.is_feature_enabled("nonexistent"));
         assert_eq!(context.get_max_size("block"), 4_000_000);
+    }
+    
+    #[test]
+    fn test_validation_context_all_protocols() {
+        let mainnet_context = ProtocolValidationContext::new(ProtocolVersion::BitcoinV1, 1000).unwrap();
+        let testnet_context = ProtocolValidationContext::new(ProtocolVersion::Testnet3, 1000).unwrap();
+        let regtest_context = ProtocolValidationContext::new(ProtocolVersion::Regtest, 1000).unwrap();
+        
+        // All should have same block height
+        assert_eq!(mainnet_context.block_height, 1000);
+        assert_eq!(testnet_context.block_height, 1000);
+        assert_eq!(regtest_context.block_height, 1000);
+        
+        // All should support same features
+        assert!(mainnet_context.is_feature_enabled("segwit"));
+        assert!(testnet_context.is_feature_enabled("segwit"));
+        assert!(regtest_context.is_feature_enabled("segwit"));
+        
+        assert!(mainnet_context.is_feature_enabled("taproot"));
+        assert!(testnet_context.is_feature_enabled("taproot"));
+        assert!(regtest_context.is_feature_enabled("taproot"));
+        
+        assert!(mainnet_context.is_feature_enabled("rbf"));
+        assert!(testnet_context.is_feature_enabled("rbf"));
+        assert!(regtest_context.is_feature_enabled("rbf"));
+    }
+    
+    #[test]
+    fn test_validation_context_feature_queries() {
+        let context = ProtocolValidationContext::new(ProtocolVersion::BitcoinV1, 1000).unwrap();
+        
+        // Test all supported features
+        assert!(context.is_feature_enabled("segwit"));
+        assert!(context.is_feature_enabled("taproot"));
+        assert!(context.is_feature_enabled("rbf"));
+        
+        // Test unsupported features
+        assert!(!context.is_feature_enabled("nonexistent"));
+        assert!(!context.is_feature_enabled(""));
+        assert!(!context.is_feature_enabled("fast_mining"));
+    }
+    
+    #[test]
+    fn test_validation_context_size_queries() {
+        let context = ProtocolValidationContext::new(ProtocolVersion::BitcoinV1, 1000).unwrap();
+        
+        assert_eq!(context.get_max_size("block"), 4_000_000);
+        assert_eq!(context.get_max_size("transaction"), 1_000_000);
+        assert_eq!(context.get_max_size("script"), 10_000);
+        
+        // Test unknown component
+        assert_eq!(context.get_max_size("unknown"), 0);
+    }
+    
+    #[test]
+    fn test_validation_context_serialization() {
+        let context = ProtocolValidationContext::new(ProtocolVersion::BitcoinV1, 1000).unwrap();
+        let json = serde_json::to_string(&context).unwrap();
+        let deserialized: ProtocolValidationContext = serde_json::from_str(&json).unwrap();
+        
+        assert_eq!(context.block_height, deserialized.block_height);
+        assert_eq!(context.network_params.network_name, deserialized.network_params.network_name);
+        assert_eq!(context.validation_rules.max_block_size, deserialized.validation_rules.max_block_size);
+    }
+    
+    #[test]
+    fn test_validation_context_equality() {
+        let context1 = ProtocolValidationContext::new(ProtocolVersion::BitcoinV1, 1000).unwrap();
+        let context2 = ProtocolValidationContext::new(ProtocolVersion::BitcoinV1, 1000).unwrap();
+        let context3 = ProtocolValidationContext::new(ProtocolVersion::Testnet3, 1000).unwrap();
+        
+        assert_eq!(context1, context2);
+        assert_ne!(context1, context3); // Different network parameters
+    }
+    
+    #[test]
+    fn test_block_size_validation() {
+        let engine = BitcoinProtocolEngine::new(ProtocolVersion::BitcoinV1).unwrap();
+        let context = ProtocolValidationContext::new(ProtocolVersion::BitcoinV1, 1000).unwrap();
+        
+        // Create a block that's within size limits
+        let small_block = Block {
+            header: BlockHeader {
+                version: 1,
+                prev_block_hash: [0u8; 32],
+                merkle_root: [0u8; 32],
+                timestamp: 1231006505,
+                bits: 0x1d00ffff,
+                nonce: 0,
+            },
+            transactions: vec![Transaction {
+                version: 1,
+                inputs: vec![],
+                outputs: vec![],
+                lock_time: 0,
+            }],
+        };
+        
+        // This should pass validation
+        let result = engine.validate_block_with_protocol(&small_block, &HashMap::new(), 1000, &context);
+        assert!(result.is_ok());
+    }
+    
+    #[test]
+    fn test_transaction_size_validation() {
+        let engine = BitcoinProtocolEngine::new(ProtocolVersion::BitcoinV1).unwrap();
+        let context = ProtocolValidationContext::new(ProtocolVersion::BitcoinV1, 1000).unwrap();
+        
+        // Create a small transaction
+        let small_tx = Transaction {
+            version: 1,
+            inputs: vec![TransactionInput {
+                prevout: OutPoint { hash: [0u8; 32], index: 0 },
+                script_sig: vec![0x41, 0x04], // Small signature
+                sequence: 0xffffffff,
+            }],
+            outputs: vec![TransactionOutput {
+                value: 50_0000_0000,
+                script_pubkey: vec![0x76, 0xa9, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00], // P2PKH
+            }],
+            lock_time: 0,
+        };
+        
+        // This should pass validation
+        let result = engine.validate_transaction_with_protocol(&small_tx, &context);
+        assert!(result.is_ok());
+    }
+    
+    #[test]
+    fn test_script_size_validation() {
+        let engine = BitcoinProtocolEngine::new(ProtocolVersion::BitcoinV1).unwrap();
+        let context = ProtocolValidationContext::new(ProtocolVersion::BitcoinV1, 1000).unwrap();
+        
+        // Create a transaction with small scripts
+        let tx = Transaction {
+            version: 1,
+            inputs: vec![TransactionInput {
+                prevout: OutPoint { hash: [0u8; 32], index: 0 },
+                script_sig: vec![0x41, 0x04], // Small script sig
+                sequence: 0xffffffff,
+            }],
+            outputs: vec![TransactionOutput {
+                value: 50_0000_0000,
+                script_pubkey: vec![0x76, 0xa9, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00], // Small script pubkey
+            }],
+            lock_time: 0,
+        };
+        
+        // This should pass validation
+        let result = engine.validate_transaction_with_protocol(&tx, &context);
+        assert!(result.is_ok());
+    }
+    
+    #[test]
+    fn test_validation_context_data() {
+        let mut context = ProtocolValidationContext::new(ProtocolVersion::BitcoinV1, 1000).unwrap();
+        
+        // Add some context data
+        context.context_data.insert("test_key".to_string(), "test_value".to_string());
+        
+        assert_eq!(context.context_data.get("test_key"), Some(&"test_value".to_string()));
+        assert_eq!(context.context_data.get("nonexistent"), None);
+    }
+    
+    #[test]
+    fn test_validation_rules_boundary_values() {
+        let rules = ProtocolValidationRules::mainnet();
+        
+        // Test boundary values
+        assert!(rules.max_block_size > 0);
+        assert!(rules.max_tx_size > 0);
+        assert!(rules.max_script_size > 0);
+        assert!(rules.max_fee_rate > rules.min_fee_rate);
+        
+        // Test that limits are reasonable
+        assert!(rules.max_block_size <= 10_000_000); // Not unreasonably large
+        assert!(rules.max_tx_size <= 5_000_000); // Not unreasonably large
+        assert!(rules.max_script_size <= 50_000); // Not unreasonably large
     }
 }
